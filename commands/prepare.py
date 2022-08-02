@@ -66,15 +66,12 @@ def log(msg):
 def get_vpcs(region, outputfilter):
     vpc_filter = ""
     if "vpc-ids" in outputfilter:
-        vpc_filter += " | select (.VpcId | contains({}))".format(
-            outputfilter["vpc-ids"]
-        )
+        vpc_filter += f' | select (.VpcId | contains({outputfilter["vpc-ids"]}))'
     if "vpc-names" in outputfilter:
-        vpc_filter += ' | select(.Tags != null) | select (.Tags[] | (.Key == "Name") and (.Value | contains({})))'.format(
-            outputfilter["vpc-names"]
-        )
+        vpc_filter += f' | select(.Tags != null) | select (.Tags[] | (.Key == "Name") and (.Value | contains({outputfilter["vpc-names"]})))'
+
     vpcs = query_aws(region.account, "ec2-describe-vpcs", region)
-    return pyjq.all(".Vpcs[]?{}".format(vpc_filter), vpcs)
+    return pyjq.all(f".Vpcs[]?{vpc_filter}", vpcs)
 
 
 def get_azs(vpc):
@@ -136,16 +133,10 @@ def get_ecs_tasks(region):
     for clusterArn in clusters.get("clusterArns", []):
         tasks_json = get_parameter_file(region, "ecs", "list-tasks", clusterArn)
         for taskArn in tasks_json["taskArns"]:
-            task_path = "account-data/{}/{}/{}/{}/{}".format(
-                region.account.name,
-                region.region.name,
-                "ecs-describe-tasks",
-                urllib.parse.quote_plus(clusterArn),
-                urllib.parse.quote_plus(taskArn),
-            )
+            task_path = f"account-data/{region.account.name}/{region.region.name}/ecs-describe-tasks/{urllib.parse.quote_plus(clusterArn)}/{urllib.parse.quote_plus(taskArn)}"
+
             task = json.load(open(task_path))
-            for task in task["tasks"]:
-                tasks.append(task)
+            tasks.extend(iter(task["tasks"]))
     return tasks
 
 
@@ -175,12 +166,11 @@ def get_elasticsearch(region):
 def get_sgs(vpc):
     sgs = query_aws(vpc.account, "ec2-describe-security-groups", vpc.region)
     return pyjq.all(
-        '.SecurityGroups[]? | select(.VpcId == "{}")'.format(vpc.local_id), sgs
+        f'.SecurityGroups[]? | select(.VpcId == "{vpc.local_id}")', sgs
     )
 
 
 def get_external_cidrs(account, config):
-    external_cidrs = []
     unique_cidrs = {}
     for region in account.children:
         for vpc in region.children:
@@ -192,12 +182,11 @@ def get_external_cidrs(account, config):
                 for cidr in cidrs:
                     unique_cidrs[cidr] = 1
 
-    # Remove private CIDR ranges
-    for cidr in unique_cidrs.keys():
-        if is_external_cidr(cidr):
-            # It's something else, so add it
-            external_cidrs.append(Cidr(cidr, get_cidr_name(cidr, config)))
-    return external_cidrs
+    return [
+        Cidr(cidr, get_cidr_name(cidr, config))
+        for cidr in unique_cidrs
+        if is_external_cidr(cidr)
+    ]
 
 
 def get_cidr_name(cidr, config):
@@ -269,14 +258,13 @@ def get_connections(cidrs, vpc, outputfilter):
                     if instance.is_public:
                         cidrs[cidr].is_used = True
                         add_connection(connections, cidrs[cidr], instance, sg)
-                    else:
-                        if cidr == "0.0.0.0/0":
-                            # Resource is not public, but allows anything to access it,
-                            # so mark set all the resources in the VPC as allowing access to it.
-                            for source_instance in vpc.leaves:
-                                add_connection(
-                                    connections, source_instance, instance, sg
-                                )
+                    elif cidr == "0.0.0.0/0":
+                        # Resource is not public, but allows anything to access it,
+                        # so mark set all the resources in the VPC as allowing access to it.
+                        for source_instance in vpc.leaves:
+                            add_connection(
+                                connections, source_instance, instance, sg
+                            )
 
         if outputfilter.get("internal_edges", True):
             # Connect allowed in Security Groups
@@ -289,14 +277,8 @@ def get_connections(cidrs, vpc, outputfilter):
                     for source in sg_to_instance_mapping.get(ingress_sg, {}):
                         if (
                             not outputfilter.get("inter_rds_edges", True)
-                            and (
-                                source.node_type == "rds"
-                                or source.node_type == "rds_rr"
-                            )
-                            and (
-                                target.node_type == "rds"
-                                or target.node_type == "rds_rr"
-                            )
+                            and source.node_type in ["rds", "rds_rr"]
+                            and target.node_type in ["rds", "rds_rr"]
                         ):
                             continue
                         add_connection(connections, source, target, sg)

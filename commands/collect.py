@@ -24,12 +24,7 @@ def snakecase(s):
 
 
 def get_identifier_from_parameter(parameter):
-    if isinstance(parameter, list):
-        identifier = parameter[0]
-    else:
-        identifier = parameter
-
-    return identifier
+    return parameter[0] if isinstance(parameter, list) else parameter
 
 
 def get_filename_from_parameter(parameter):
@@ -69,7 +64,7 @@ def call_function(outputfile, handler, method_to_call, parameters, check, summar
     data = None
     if os.path.isfile(outputfile):
         # Data already collected, so skip
-        print("  Response already collected at {}".format(outputfile), flush=True)
+        print(f"  Response already collected at {outputfile}", flush=True)
         return
 
     call_summary = {
@@ -78,7 +73,7 @@ def call_function(outputfile, handler, method_to_call, parameters, check, summar
         "parameters": parameters,
     }
 
-    print("  Making call for {}".format(outputfile), flush=True)
+    print(f"  Making call for {outputfile}", flush=True)
     try:
         for retries in range(MAX_RETRIES):
             if handler.can_paginate(method_to_call):
@@ -97,20 +92,18 @@ def call_function(outputfile, handler, method_to_call, parameters, check, summar
                 function = getattr(handler, method_to_call)
                 data = function(**parameters)
 
-            if check is not None:
-                if data[check[0]["Name"]] == check[0]["Value"]:
-                    continue
-                if retries == MAX_RETRIES - 1:
-                    raise Exception(
-                        "Check value {} never set as {} in response".format(
-                            check["Name"], check["Value"]
-                        )
-                    )
-                print("  Sleeping and retrying")
-                time.sleep(3)
-            else:
+            if check is None:
                 break
 
+            if data[check[0]["Name"]] == check[0]["Value"]:
+                continue
+            if retries == MAX_RETRIES - 1:
+                raise Exception(
+                    f'Check value {check["Name"]} never set as {check["Value"]} in response'
+                )
+
+            print("  Sleeping and retrying")
+            time.sleep(3)
     except ClientError as e:
         if "NoSuchBucketPolicy" in str(e):
             # This error occurs when you try to get the bucket policy for a bucket that has no bucket policy, so this can be ignored.
@@ -186,13 +179,13 @@ def call_function(outputfile, handler, method_to_call, parameters, check, summar
         elif "AWSOrganizationsNotInUseException" in str(e):
             print(" - Your account is not a member of an organization.")
         else:
-            print("ClientError: {}".format(e), flush=True)
+            print(f"ClientError: {e}", flush=True)
             call_summary["exception"] = e
     except EndpointConnectionError as e:
-        print("EndpointConnectionError: {}".format(e), flush=True)
+        print(f"EndpointConnectionError: {e}", flush=True)
         call_summary["exception"] = e
     except Exception as e:
-        print("Exception: {}".format(e), flush=True)
+        print(f"Exception: {e}", flush=True)
         call_summary["exception"] = e
 
     # Remove unused values

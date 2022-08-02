@@ -57,7 +57,7 @@ class MyHTTPRequestHandler(SimpleHTTPRequestHandler):
             if word in (os.curdir, os.pardir):
                 continue
             if "?" in word:
-                word = word[0 : word.index("?")]
+                word = word[:word.index("?")]
             path = os.path.join(path, word)
         return path
 
@@ -100,7 +100,5 @@ def run(arguments):
         httpd = RootedHTTPServerV6("web", (listening_host, args.port), Handler)
     else:
         httpd = RootedHTTPServer("web", (listening_host, args.port), Handler)
-    print(
-        "CloudMapper serving web directory on {}:{}".format(listening_host, args.port)
-    )
+    print(f"CloudMapper serving web directory on {listening_host}:{args.port}")
     httpd.serve_forever()

@@ -40,13 +40,7 @@ def audit_command(accounts, config, args):
             )
         else:
             print(
-                "{} - {} ({}) - {}: {}".format(
-                    conf["severity"].upper(),
-                    finding.region.account.name,
-                    finding.region.name,
-                    conf["title"],
-                    finding.resource_id,
-                )
+                f'{conf["severity"].upper()} - {finding.region.account.name} ({finding.region.name}) - {conf["title"]}: {finding.resource_id}'
             )
 
 

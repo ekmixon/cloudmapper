@@ -50,8 +50,8 @@ class Account(object):
 
     def __init__(self, *args, **kwargs):
 
-        json_blob = kwargs.get("json_blob", None)
-        account_id = kwargs.get("account_id", None)
+        json_blob = kwargs.get("json_blob")
+        account_id = kwargs.get("account_id")
 
         if json_blob:
             self.name = json_blob["name"]
@@ -130,7 +130,7 @@ def is_admin_policy(policy_doc):
         if stmt["Effect"] == "Allow":
             actions = make_list(stmt.get("Action", []))
             for action in actions:
-                if action == "*" or action == "*:*" or action == "iam:*":
+                if action in ["*", "*:*", "iam:*"]:
                     return True
     return False
 
@@ -187,9 +187,7 @@ def get_iam_trusts(account, nodes, connections, connections_to_get):
         principals = pyjq.all(".AssumeRolePolicyDocument.Statement[].Principal", role)
         for principal in principals:
             assume_role_nodes = set()
-            federated_principals = principal.get("Federated", None)
-
-            if federated_principals:
+            if federated_principals := principal.get("Federated", None):
                 if not isinstance(federated_principals, list):
                     federated_principals = [federated_principals]
 
@@ -297,11 +295,7 @@ def get_iam_trusts(account, nodes, connections, connections_to_get):
                             )
                             continue
                         else:
-                            raise Exception(
-                                "Unknown federation provider: {}".format(
-                                    saml_provider_arn.lower()
-                                )
-                            )
+                            raise Exception(f"Unknown federation provider: {saml_provider_arn.lower()}")
 
                     except (StopIteration, IndexError):
                         if (
@@ -315,10 +309,9 @@ def get_iam_trusts(account, nodes, connections, connections_to_get):
                             # https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html
                             continue
                         raise Exception(
-                            "Principal {} is not a configured SAML provider".format(
-                                federated_principal
-                            )
+                            f"Principal {federated_principal} is not a configured SAML provider"
                         )
+
             if principal.get("AWS", None):
                 principal = principal["AWS"]
                 if not isinstance(principal, list):
@@ -340,9 +333,12 @@ def get_iam_trusts(account, nodes, connections, connections_to_get):
                     for p in pyjq.all(".Policies[]", iam):
                         if p["Arn"] == m["PolicyArn"]:
                             for policy_doc in p["PolicyVersionList"]:
-                                if policy_doc["IsDefaultVersion"] == True:
-                                    if is_admin_policy(policy_doc["Document"]):
-                                        access_type = "admin"
+                                if policy_doc[
+                                    "IsDefaultVersion"
+                                ] == True and is_admin_policy(
+                                    policy_doc["Document"]
+                                ):
+                                    access_type = "admin"
                 for policy in role["RolePolicyList"]:
                     policy_doc = policy["PolicyDocument"]
                     if is_admin_policy(policy_doc):
@@ -356,9 +352,7 @@ def get_iam_trusts(account, nodes, connections, connections_to_get):
 
 
 def get_s3_trusts(account, nodes, connections):
-    policy_dir = "./account-data/{}/us-east-1/s3-get-bucket-policy/".format(
-        account.name
-    )
+    policy_dir = f"./account-data/{account.name}/us-east-1/s3-get-bucket-policy/"
     for s3_policy_file in [
         f
         for f in listdir(policy_dir)
@@ -373,16 +367,14 @@ def get_s3_trusts(account, nodes, connections):
             if principals is None:
                 if s.get("NotPrincipal", None) is not None:
                     print(
-                        "WARNING: Use of NotPrincipal in {} for {}: {}".format(
-                            account.name, s3_bucket_name, s
-                        )
+                        f"WARNING: Use of NotPrincipal in {account.name} for {s3_bucket_name}: {s}"
                     )
+
                     continue
                 print(
-                    "WARNING: Malformed statement in {} for {}: {}".format(
-                        account.name, s3_bucket_name, s
-                    )
+                    f"WARNING: Malformed statement in {account.name} for {s3_bucket_name}: {s}"
                 )
+
                 continue
 
             for principal in principals:
@@ -401,16 +393,19 @@ def get_s3_trusts(account, nodes, connections):
                 for node in assume_role_nodes:
                     if nodes.get(node.id, None) is None:
                         nodes[node.id] = node
-                    access_type = "s3_read"
                     actions = s["Action"]
                     if not isinstance(actions, list):
                         actions = [actions]
-                    for action in actions:
-                        if not action.startswith("s3:List") and not action.startswith(
-                            "s3:Get"
-                        ):
-                            access_type = "s3"
-                            break
+                    access_type = next(
+                        (
+                            "s3"
+                            for action in actions
+                            if not action.startswith("s3:List")
+                            and not action.startswith("s3:Get")
+                        ),
+                        "s3_read",
+                    )
+
                     connections[Connection(node, account, access_type)] = []
     return
 
@@ -452,11 +447,9 @@ def weboftrust(args, accounts, config):
     for account in accounts:
         # Check if the account data exists
         if not path.exists(
-            "./account-data/{}/us-east-1/iam-get-account-authorization-details.json".format(
-                account["name"]
-            )
+            f'./account-data/{account["name"]}/us-east-1/iam-get-account-authorization-details.json'
         ):
-            print("INFO: Skipping account {}".format(account["name"]))
+            print(f'INFO: Skipping account {account["name"]}')
             continue
         get_nodes_and_connections(account, nodes, connections, args)
 
@@ -471,11 +464,12 @@ def weboftrust(args, accounts, config):
 
         # Set up parent relationship
         for known_account in config["accounts"]:
-            if n.id == known_account["id"]:
-                if known_account.get("tags", False):
-                    parent_name = known_account["tags"][0]
-                    n.parent = parent_name
-                    parents.add(parent_name)
+            if n.id == known_account["id"] and known_account.get(
+                "tags", False
+            ):
+                parent_name = known_account["tags"][0]
+                n.parent = parent_name
+                parents.add(parent_name)
 
         # Ensure we don't modify the type of accounts that we are scanning,
         # so first check if this account was one that was scanned
@@ -493,11 +487,7 @@ def weboftrust(args, accounts, config):
             for vendor in vendor_accounts:
                 if n.id in vendor["accounts"]:
                     if "source" not in vendor:
-                        print(
-                            "WARNING: Unconfirmed vendor: {} ({})".format(
-                                vendor["name"], n.id
-                            )
-                        )
+                        print(f'WARNING: Unconfirmed vendor: {vendor["name"]} ({n.id})')
                     n.name = vendor["name"]
                     n.type = vendor.get("type", vendor["name"])
 
@@ -512,7 +502,7 @@ def weboftrust(args, accounts, config):
                     break
 
             if n.type == "unknown_account":
-                print("Unknown account: {}".format(n.id))
+                print(f"Unknown account: {n.id}")
 
             # Ignore AWS accounts unless the argument was given not to
             if n.type == "aws" and not args.show_aws_owned_accounts:
@@ -548,7 +538,7 @@ def weboftrust(args, accounts, config):
         c._json = reasons
         cytoscape_json.append(c.cytoscape_data())
         num_connections += 1
-    print("- {} connections built".format(num_connections))
+    print(f"- {num_connections} connections built")
 
     return cytoscape_json
 

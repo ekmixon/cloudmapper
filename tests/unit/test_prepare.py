@@ -91,13 +91,14 @@ class TestPrepare(unittest.TestCase):
         # Build the entire demo data set
         json_blob = {u"id": 111111111111, u"name": u"demo"}
 
-        outputfilter = {}
-        outputfilter["internal_edges"] = True
-        outputfilter["read_replicas"] = True
-        outputfilter["inter_rds_edges"] = True
-        outputfilter["azs"] = False
-        outputfilter["collapse_by_tag"] = False
-        outputfilter["collapse_asgs"] = False
+        outputfilter = {
+            "internal_edges": True,
+            "read_replicas": True,
+            "inter_rds_edges": True,
+            "azs": False,
+            "collapse_by_tag": False,
+            "collapse_asgs": False,
+        }
 
         config = {
             "accounts": [{"id": 123456789012, "name": "demo"}],

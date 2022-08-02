@@ -20,9 +20,7 @@ def output_image(accounts, account_stats, resource_names, output_image_file):
     accounts = list(reversed(accounts))
 
     account_names = ["Resource"]
-    for account in accounts:
-        account_names.append(account["name"])
-
+    account_names.extend(account["name"] for account in accounts)
     data = []
     for resource_name in resource_names:
         resource_array = [resource_name]
@@ -45,7 +43,7 @@ def output_image(accounts, account_stats, resource_names, output_image_file):
     # next to each other.
 
     fig.savefig(output_image_file, format="png", bbox_inches="tight", dpi=200)
-    print("Image saved to {}".format(output_image_file), file=sys.stderr)
+    print(f"Image saved to {output_image_file}", file=sys.stderr)
 
 
 def stats(accounts, config, args):

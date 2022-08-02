@@ -37,19 +37,14 @@ def get_cidrs_for_account(account, cidrs):
                     continue
 
                 if is_unblockable_cidr(cidr):
-                    print(
-                        "WARNING: Unneeded cidr used {} in {}".format(
-                            cidr, sg["GroupId"]
-                        )
-                    )
+                    print(f'WARNING: Unneeded cidr used {cidr} in {sg["GroupId"]}')
                     continue
 
                 if cidr.startswith("0.0.0.0") and not cidr.endswith("/0"):
                     print(
-                        "WARNING: Unexpected CIDR for attempted public access {} in {}".format(
-                            cidr, sg["GroupId"]
-                        )
+                        f'WARNING: Unexpected CIDR for attempted public access {cidr} in {sg["GroupId"]}'
                     )
+
                     continue
 
                 if cidr == "0.0.0.0/0":
@@ -69,11 +64,7 @@ def get_cidrs_for_account(account, cidrs):
                         if IPNetwork(cidr_seen) in IPNetwork(cidr) or IPNetwork(
                             cidr
                         ) in IPNetwork(cidr_seen):
-                            print(
-                                "WARNING: Overlapping CIDRs in {}, {} and {}".format(
-                                    sg["GroupId"], cidr, cidr_seen
-                                )
-                            )
+                            print(f'WARNING: Overlapping CIDRs in {sg["GroupId"]}, {cidr} and {cidr_seen}')
                     cidrs_seen.add(cidr)
 
 
@@ -153,16 +144,16 @@ def sg_ips(accounts):
         get_cidrs_for_account(account, cidrs)
 
     # Get info about each cidr
-    for cidr in cidrs:
+    for cidr, value in cidrs.items():
         # Get description text from security groups
         description = ""
-        if len(cidrs[cidr]) > 0:
+        if len(value) > 0:
             description = "|".join(cidrs[cidr])
         description = description.encode("ascii", "ignore").decode("ascii")
 
         ip = IPNetwork(cidr)
         if ip.size > 2048:
-            print("WARNING: Large CIDR {} contains {} IPs in it".format(cidr, ip.size))
+            print(f"WARNING: Large CIDR {cidr} contains {ip.size} IPs in it")
 
         # Look up the cidr in the databases
         try:
@@ -172,7 +163,7 @@ def sg_ips(accounts):
             # Convert to ascii
             isp = isp.encode("ascii", "ignore").decode("ascii")
         except geoip2.errors.AddressNotFoundError:
-            print("WARNING: Unknown CIDR {}".format(cidr))
+            print(f"WARNING: Unknown CIDR {cidr}")
             continue
 
         # Collect the longitude and latitude locations for graphing
@@ -211,17 +202,18 @@ def sg_ips(accounts):
             location_name_parts.append(country)
 
         location_name = ", ".join(location_name_parts)
-        if location_name == "":
+        if not location_name:
             location_name = "Unknown"
         location_name = location_name.encode("ascii", "ignore").decode("ascii")
 
         # Collect information about the cidrs in a way that can be sorted
-        cidr_dict["{}-{}-{}-{}".format(country, state, city, cidr)] = {
+        cidr_dict[f"{country}-{state}-{city}-{cidr}"] = {
             "cidr": cidr,
             "description": description,
             "location": location_name,
             "isp": isp,
         }
+
 
     # Sort the cidrs
     sorted_cidrs = OrderedDict(sorted(cidr_dict.items()))
@@ -229,13 +221,9 @@ def sg_ips(accounts):
     # Print them in sorted order
     for _, cidr in sorted_cidrs.items():
         print(
-            "{}\t {}\t {}\t {}".format(
-                cidr["cidr"].ljust(18),
-                cidr["description"].ljust(20),
-                cidr["location"].ljust(50),
-                cidr["isp"],
-            )
+            f'{cidr["cidr"].ljust(18)}\t {cidr["description"].ljust(20)}\t {cidr["location"].ljust(50)}\t {cidr["isp"]}'
         )
+
 
     # Save image
     fig, ax = plt.subplots()
@@ -253,9 +241,7 @@ def sg_ips(accounts):
     fig.set_size_inches(8, 6)
     fig.savefig("trusted_ips.png", pad_inches=0, bbox_inches="tight")
     print(
-        "Image saved to {}".format(
-            path.join(path.dirname(path.realpath("__file__")), "trusted_ips.png")
-        )
+        f'Image saved to {path.join(path.dirname(path.realpath("__file__")), "trusted_ips.png")}'
     )
 
 

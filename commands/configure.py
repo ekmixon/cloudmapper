@@ -20,9 +20,10 @@ def configure(action, arguments):
             {
                 "id": str(arguments.id),
                 "name": str(arguments.name),
-                "default": True if arguments.default.lower() == "true" else False,
+                "default": arguments.default.lower() == "true",
             }
         )
+
     elif action == "add-cidr":
         try:
             netaddr.IPNetwork(arguments.cidr)
@@ -88,8 +89,8 @@ def run(arguments):
     parser.add_argument(
         "--config-file", help="Path to the config file", default="config.json", type=str
     )
-    if action == "add-account" or action == "remove-account":
-        required = True if action.startswith("add") else False
+    if action in ["add-account", "remove-account"]:
+        required = bool(action.startswith("add"))
         parser.add_argument("--name", help="Account name", required=required, type=str)
         parser.add_argument("--id", help="Account ID", required=required, type=str)
         parser.add_argument(
@@ -99,8 +100,8 @@ def run(arguments):
             default="False",
             type=str,
         )
-    elif action == "add-cidr" or action == "remove-cidr":
-        required = True if action.startswith("add") else False
+    elif action in ["add-cidr", "remove-cidr"]:
+        required = bool(action.startswith("add"))
         parser.add_argument("--cidr", help="CIDR IP", required=required, type=str)
         parser.add_argument("--name", help="CIDR Name", required=required, type=str)
     args = parser.parse_args(arguments)

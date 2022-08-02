@@ -83,8 +83,7 @@ def get_access_advisor(region, principal_stats, json_account_auth_details, args)
         *json_account_auth_details["UserDetailList"],
         *json_account_auth_details["RoleDetailList"],
     ]:
-        stats = {}
-        stats["auth"] = principal_auth
+        stats = {"auth": principal_auth}
         job_id = get_parameter_file(
             region,
             "iam",
@@ -99,14 +98,16 @@ def get_access_advisor(region, principal_stats, json_account_auth_details, args)
         stats["is_inactive"] = True
 
         job_completion_date = datetime.datetime.strptime(
-            json_last_access_details["JobCompletionDate"][0:10], "%Y-%m-%d"
+            json_last_access_details["JobCompletionDate"][:10], "%Y-%m-%d"
         )
+
 
         for service in json_last_access_details["ServicesLastAccessed"]:
             if "LastAuthenticated" in service:
                 last_access_date = datetime.datetime.strptime(
-                    service["LastAuthenticated"][0:10], "%Y-%m-%d"
+                    service["LastAuthenticated"][:10], "%Y-%m-%d"
                 )
+
                 service["days_since_last_use"] = (
                     job_completion_date - last_access_date
                 ).days
@@ -128,7 +129,7 @@ def get_service_count_and_used(service_last_accessed):
 
 
 def html_service_chart(principal, services_used, services_granted):
-    chartid = "serviceChart" + principal
+    chartid = f"serviceChart{principal}"
     return (
         '<div style="width:30%"><canvas id="{}" width="100" height="15"></canvas></div>'
         + '<script>makeServiceUnusedChart("{}", {}, {});</script>'
@@ -143,11 +144,13 @@ class graph_node(object):
     __name = ""
 
     def cytoscape_data(self):
-        response = {
-            "data": {"id": self.key(), "name": self.name(), "type": self.get_type()}
+        return {
+            "data": {
+                "id": self.key(),
+                "name": self.name(),
+                "type": self.get_type(),
+            }
         }
-
-        return response
 
     def key(self):
         return self.__key
@@ -159,9 +162,7 @@ class graph_node(object):
         self.__name = name
 
     def name(self):
-        if self.__name == "":
-            return self.key()
-        return self.__name
+        return self.key() if self.__name == "" else self.__name
 
     def is_principal(self):
         pass
@@ -189,9 +190,7 @@ class graph_node(object):
                 if self.is_principal():
                     source_path = source
                 else:
-                    source_path = []
-                    for s in source:
-                        source_path.append("{}.{}".format(self.name(), s))
+                    source_path = [f"{self.name()}.{s}" for s in source]
                 source_list.extend(source_path)
                 services[service] = source_list
         return services
@@ -226,7 +225,7 @@ class user_node(graph_node):
             auth_graph[policy_node.key()] = policy_node
 
         for group_name in auth.get("GroupList", []):
-            group_key = self.key()[0:26] + "group" + auth["Path"] + group_name
+            group_key = self.key()[:26] + "group" + auth["Path"] + group_name
             group_node = auth_graph[group_key]
             group_node.add_parent(self)
             self.add_child(group_node)
@@ -284,11 +283,8 @@ class policy_node(graph_node):
         return False
 
     def get_services_allowed(self):
-        response = {}
         services = self.__policy_summary.action_summary().keys()
-        for service in services:
-            response[service] = [self.name()]
-        return response
+        return {service: [self.name()] for service in services}
 
     def set_policy_document(self, doc):
         self.__policy_document = doc
@@ -314,7 +310,7 @@ class inline_policy_node(policy_node):
 
     def __init__(self, parent, auth):
         super().__init__()
-        self.set_key(parent.key() + "/policy/" + auth["PolicyName"])
+        self.set_key(f"{parent.key()}/policy/" + auth["PolicyName"])
         self.set_key(auth["PolicyName"])
         parent.add_child(self)
         self.add_parent(parent)

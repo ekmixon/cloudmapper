@@ -34,4 +34,4 @@ def run(arguments):
         if args.json:
             print(json.dumps(admin, sort_keys=True))
         else:
-            print("{}\t{}\t{}".format(admin["account"], admin["type"], admin["name"]))
+            print(f'{admin["account"]}\t{admin["type"]}\t{admin["name"]}')

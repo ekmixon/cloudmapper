@@ -12,18 +12,21 @@ __description__ = "Cross-reference EC2 instances with AMI information"
 
 
 def log_warning(msg):
-    print("WARNING: {}".format(msg), file=sys.stderr)
+    print(f"WARNING: {msg}", file=sys.stderr)
 
 
 def find_image(image_id, public_images, account_images):
     for image in public_images:
         if image_id == image["ImageId"]:
             return image, "public"
-    for image in account_images:
-        if image_id == image["ImageId"]:
-            return image, "private"
-
-    return None, "unknown_image"
+    return next(
+        (
+            (image, "private")
+            for image in account_images
+            if image_id == image["ImageId"]
+        ),
+        (None, "unknown_image"),
+    )
 
 
 def get_instance_name(instance):
@@ -48,21 +51,13 @@ def amis(args, accounts, config):
         )
 
     print(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(
-            "Account Name",
-            "Region Name",
-            "Instance Id",
-            "Instance Name",
-            "AMI ID",
-            "Is Public",
-            "AMI Description",
-            "AMI Owner",
-        )
+        f"Account Name\tRegion Name\tInstance Id\tInstance Name\tAMI ID\tIs Public\tAMI Description\tAMI Owner"
     )
+
 
     for region_name in listdir("data/aws/"):
         # Get public images
-        public_images_file = "data/aws/{}/ec2-describe-images.json".format(region_name)
+        public_images_file = f"data/aws/{region_name}/ec2-describe-images.json"
         public_images = json.load(open(public_images_file))
         resource_filter = ".Images[]"
         public_images = pyjq.all(resource_filter, public_images)
@@ -76,7 +71,7 @@ def amis(args, accounts, config):
                 '.Reservations[].Instances[] | select(.State.Name == "running")'
             )
             if args.instance_filter != "":
-                resource_filter += "|{}".format(args.instance_filter)
+                resource_filter += f"|{args.instance_filter}"
 
             if "Reservations" not in instances:
                 print(f"** skipping: {account.name} in {region_name}")
@@ -103,21 +98,12 @@ def amis(args, accounts, config):
                     image_description = image.get("Name", "")
                     if image_description == "":
                         image_description = image.get("Description", "")
-                        if image_description == "":
-                            image_description = image.get("ImageLocation", "")
+                    if image_description == "":
+                        image_description = image.get("ImageLocation", "")
                     owner = image.get("OwnerId", "")
 
                 print(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(
-                        account.name,
-                        region.name,
-                        instance["InstanceId"],
-                        get_instance_name(instance),
-                        image_id,
-                        is_public_image,
-                        image_description,
-                        owner,
-                    )
+                    f'{account.name}\t{region.name}\t{instance["InstanceId"]}\t{get_instance_name(instance)}\t{image_id}\t{is_public_image}\t{image_description}\t{owner}'
                 )
 
 

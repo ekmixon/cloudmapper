@@ -20,8 +20,10 @@ def get_organization_accounts():
         else:
             response = organizations_client.list_accounts(MaxResults=MAX_NUM_RESULTS)
 
-        for account in response.get("Accounts", []):
-            accounts.append({"name": slugify(account["Name"]), "id": account["Id"]})
+        accounts.extend(
+            {"name": slugify(account["Name"]), "id": account["Id"]}
+            for account in response.get("Accounts", [])
+        )
 
         next_token = response.get("NextToken", None)
         has_more = next_token is not None

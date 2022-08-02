@@ -38,15 +38,15 @@ def action_matches(action_from_policy, actions_to_match_against):
 def policy_action_count(policy_doc, location):
     """Counts how many unrestricted actions a policy grants"""
     policy = Policy(policy_doc)
-    actions_count = 0
-    for stmt in policy.statements:
+    return sum(
+        len(stmt.actions_expanded)
+        for stmt in policy.statements
         if (
             stmt.effect == "Allow"
             and len(stmt.condition_entries) == 0
             and stmt.resources == set("*")
-        ):
-            actions_count += len(stmt.actions_expanded)
-    return actions_count
+        )
+    )
 
 
 def is_admin_policy(
@@ -81,7 +81,7 @@ def is_admin_policy(
 
             actions = make_list(stmt.get("Action", []))
             for action in actions:
-                if action == "*" or action == "*:*" or action == "iam:*":
+                if action in ["*", "*:*", "iam:*"]:
                     if stmt.get("Resource", "") != "*":
                         findings.add(
                             Finding(
@@ -118,11 +118,10 @@ def check_for_bad_policy(findings, region, arn, policy_text):
         # https://web.archive.org/web/20170602002425/https://docs.aws.amazon.com/IAM/latest/UserGuide/tutorial_users-self-manage-mfa-and-creds.html
         # and
         # https://github.com/awsdocs/iam-user-guide/blob/cfe14c674c494d07ba0ab952fe546fdd587da65d/doc_source/id_credentials_mfa_enable_virtual.md#permissions-required
-        if (
-            statement.get("Sid", "") == "AllowIndividualUserToManageTheirOwnMFA"
-            or statement.get("Sid", "")
-            == "AllowIndividualUserToViewAndManageTheirOwnMFA"
-        ):
+        if statement.get("Sid", "") in [
+            "AllowIndividualUserToManageTheirOwnMFA",
+            "AllowIndividualUserToViewAndManageTheirOwnMFA",
+        ]:
             if "iam:DeactivateMFADevice" in make_list(statement.get("Action", [])):
                 findings.add(Finding(region, "IAM_BAD_MFA_POLICY", arn, policy_text))
                 return

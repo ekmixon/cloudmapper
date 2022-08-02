@@ -34,10 +34,10 @@ __version__ = "2.10.1"
 
 
 def show_help(commands):
-    print("CloudMapper {}".format(__version__))
-    print("usage: {} [{}] [...]".format(sys.argv[0], "|".join(sorted(commands.keys()))))
+    print(f"CloudMapper {__version__}")
+    print(f'usage: {sys.argv[0]} [{"|".join(sorted(commands.keys()))}] [...]')
     for command, module in sorted(commands.items()):
-        print("  {}: {}".format(command, module.__description__))
+        print(f"  {command}: {module.__description__}")
     exit(-1)
 
 
@@ -51,7 +51,7 @@ def main():
     commands_paths = ["commands", "private_commands"]
     for commands_path in commands_paths:
         for importer, command_name, _ in pkgutil.iter_modules([commands_path]):
-            full_package_name = "%s.%s" % (commands_path, command_name)
+            full_package_name = f"{commands_path}.{command_name}"
             module = importlib.import_module(full_package_name)
             commands[command_name] = module
 

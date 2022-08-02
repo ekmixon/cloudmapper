@@ -42,8 +42,7 @@ class Findings(object):
         self.findings.append(finding)
 
     def __iter__(self):
-        for finding in self.findings:
-            yield finding
+        yield from self.findings
 
     def __len__(self):
         return len(self.findings)
@@ -59,14 +58,11 @@ def finding_is_filtered(finding, conf, minimum_severity="LOW"):
         return True
 
     for resource_to_ignore in conf.get("ignore_resources", []):
-        ignore_regex = re.compile("^" + resource_to_ignore + "$")
+        ignore_regex = re.compile(f"^{resource_to_ignore}$")
         if re.search(ignore_regex, finding.resource_id):
             return True
 
-    if custom_filter and custom_filter(finding, conf):
-        return True
-
-    return False
+    return bool(custom_filter and custom_filter(finding, conf))
 
 
 def load_audit_config():
@@ -76,10 +72,7 @@ def load_audit_config():
 
     if exists("config/audit_config_override.yaml"):
         with open("config/audit_config_override.yaml", "r") as f:
-            audit_override = yaml.safe_load(f)
-
-            # Over-write the values from audit_config
-            if audit_override:
+            if audit_override := yaml.safe_load(f):
                 for finding_id in audit_override:
                     if finding_id not in audit_config:
                         audit_config[finding_id] = {
@@ -144,11 +137,10 @@ def audit_s3_buckets(findings, region):
             file_json = get_parameter_file(region, "s3", "get-bucket-acl", bucket)
             for grant in file_json["Grants"]:
                 uri = grant["Grantee"].get("URI", "")
-                if (
-                    uri == "http://acs.amazonaws.com/groups/global/AllUsers"
-                    or uri
-                    == "http://acs.amazonaws.com/groups/global/AuthenticatedUsers"
-                ):
+                if uri in [
+                    "http://acs.amazonaws.com/groups/global/AllUsers",
+                    "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
+                ]:
                     findings.add(
                         Finding(region, "S3_PUBLIC_ACL", bucket, resource_details=grant)
                     )
@@ -215,10 +207,11 @@ def audit_accessanalyzer(findings, region):
     if not analyzer_list_json:
         # Access Analyzer must not exist in this region (or the collect data is old)
         return
-    is_enabled = False
-    for analyzer in analyzer_list_json["analyzers"]:
-        if analyzer["status"] == "ACTIVE":
-            is_enabled = True
+    is_enabled = any(
+        analyzer["status"] == "ACTIVE"
+        for analyzer in analyzer_list_json["analyzers"]
+    )
+
     if not is_enabled:
         findings.add(Finding(region, "ACCESSANALYZER_OFF", None, None))
 
@@ -265,18 +258,13 @@ def audit_iam(findings, region):
                     fget.issue_id == "IAM_UNEXPECTED_ADMIN_PRINCIPAL"
                     and fget.resource_id == flist.resource_id
                 ):
-                    # If we are here, then the principal can list S3 buckets and get objects
-                    # from them, and is not an unexpected service. Ensure we haven't already
-                    # recorded this as an unexpected admin.
-
-                    already_recorded = False
-                    for f in findings:
-                        if (
+                    already_recorded = any(
+                        (
                             f.resource_id == fget.resource_id
                             and f.issue_id == "IAM_UNEXPECTED_ADMIN_PRINCIPAL"
-                        ):
-                            already_recorded = True
-                            break
+                        )
+                        for f in findings
+                    )
 
                     if not already_recorded:
                         flist.issue_id = "IAM_UNEXPECTED_S3_EXFIL_PRINCIPAL"
@@ -291,11 +279,10 @@ def audit_cloudtrail(findings, region):
     if len(json_blob.get("trailList", [])) == 0:
         findings.add(Finding(region, "CLOUDTRAIL_OFF", None, None))
     else:
-        multiregion = False
-        for trail in json_blob["trailList"]:
-            if trail["IsMultiRegionTrail"]:
-                multiregion = True
-                break
+        multiregion = any(
+            trail["IsMultiRegionTrail"] for trail in json_blob["trailList"]
+        )
+
         if not multiregion:
             findings.add(Finding(region, "CLOUDTRAIL_NOT_MULTIREGION", None, None))
 
@@ -328,7 +315,7 @@ def audit_password_policy(findings, region):
             lacking_character_requirements.append("RequireLowercaseCharacters")
         if not json_blob["PasswordPolicy"].get("RequireUppercaseCharacters", False):
             lacking_character_requirements.append("RequireUppercaseCharacters")
-        if len(lacking_character_requirements) > 0:
+        if lacking_character_requirements:
             findings.add(
                 Finding(
                     region,
@@ -559,27 +546,31 @@ def audit_route53(findings, region):
     for region_name in regions:
         vpc_json = query_aws(region.account, "ec2-describe-vpcs", region_name)
         vpcs = pyjq.all(
-            '.Vpcs[]? | select(.OwnerId=="{}").VpcId'.format(region.account.local_id),
+            f'.Vpcs[]? | select(.OwnerId=="{region.account.local_id}").VpcId',
             vpc_json,
         )
+
         for vpc in vpcs:
             hosted_zone_file = f"account-data/{region.account.name}/{region.name}/route53-list-hosted-zones-by-vpc/{region_name}/{vpc}"
             hosted_zones_json = json.load(open(hosted_zone_file))
             hosted_zones = pyjq.all(".HostedZoneSummaries[]?", hosted_zones_json)
             for hosted_zone in hosted_zones:
-                if hosted_zone.get("Owner", {}).get("OwningAccount", "") != "":
-                    if hosted_zone["Owner"]["OwningAccount"] != region.account.local_id:
-                        findings.add(
-                            Finding(
-                                region,
-                                "FOREIGN_HOSTED_ZONE",
-                                hosted_zone,
-                                resource_datails={
-                                    "vpc_id": vpc,
-                                    "vpc_regions": region_name,
-                                },
-                            )
+                if (
+                    hosted_zone.get("Owner", {}).get("OwningAccount", "") != ""
+                    and hosted_zone["Owner"]["OwningAccount"]
+                    != region.account.local_id
+                ):
+                    findings.add(
+                        Finding(
+                            region,
+                            "FOREIGN_HOSTED_ZONE",
+                            hosted_zone,
+                            resource_datails={
+                                "vpc_id": vpc,
+                                "vpc_regions": region_name,
+                            },
                         )
+                    )
 
 
 def audit_ebs_snapshots(findings, region):
@@ -639,20 +630,22 @@ def audit_rds_snapshots(findings, region):
             for attribute in file_json["DBSnapshotAttributesResult"][
                 "DBSnapshotAttributes"
             ]:
-                if attribute["AttributeName"] == "restore":
-                    if "all" in attribute["AttributeValues"]:
-                        findings.add(
-                            Finding(
-                                region,
-                                "RDS_PUBLIC_SNAPSHOT",
-                                snapshot,
-                                resource_details={
-                                    "Entities allowed to restore": attribute[
-                                        "AttributeValues"
-                                    ]
-                                },
-                            )
+                if (
+                    attribute["AttributeName"] == "restore"
+                    and "all" in attribute["AttributeValues"]
+                ):
+                    findings.add(
+                        Finding(
+                            region,
+                            "RDS_PUBLIC_SNAPSHOT",
+                            snapshot,
+                            resource_details={
+                                "Entities allowed to restore": attribute[
+                                    "AttributeValues"
+                                ]
+                            },
                         )
+                    )
         except OSError:
             findings.add(
                 Finding(
@@ -741,14 +734,17 @@ def audit_es(findings, region):
         # ES clusters or either public, with an "Endpoint" (singular), which is bad, or
         # they are VPC-only, in which case they have an "Endpoints" (plural) array containing a "vpc" element
         if (
-            policy_file_json["DomainStatus"].get("Endpoint", "") != ""
-            or policy_file_json["DomainStatus"].get("Endpoints", {}).get("vpc", "")
-            == ""
-        ):
-            if policy.is_internet_accessible() or policy_string == "{}":
-                findings.add(
-                    Finding(region, "ES_PUBLIC", name, resource_details=policy_string)
-                )
+            (
+                policy_file_json["DomainStatus"].get("Endpoint", "") != ""
+                or policy_file_json["DomainStatus"]
+                .get("Endpoints", {})
+                .get("vpc", "")
+                == ""
+            )
+        ) and (policy.is_internet_accessible() or policy_string == "{}"):
+            findings.add(
+                Finding(region, "ES_PUBLIC", name, resource_details=policy_string)
+            )
 
 
 def audit_cloudfront(findings, region):
@@ -785,22 +781,26 @@ def audit_ec2(findings, region):
                 continue
 
             # Check for IMDSv2 enforced
-            if instance.get("MetadataOptions", {}).get("HttpEndpoint", "") == "enabled":
-                if instance["MetadataOptions"].get("HttpTokens", "") == "optional":
-                    findings.add(
-                        Finding(
-                            region,
-                            "EC2_IMDSV2_NOT_ENFORCED",
-                            instance["InstanceId"],
-                            resource_details={
-                                "Name": get_name(instance, "InstanceId"),
-                                "Instance ID": instance["InstanceId"],
-                                "Tags": instance.get("Tags", {}),
-                                "MetadataOptions": instance["MetadataOptions"],
-                                "SSH Key Found": instance.get("KeyName", {}),
-                            },
-                        )
+            if (
+                instance.get("MetadataOptions", {}).get("HttpEndpoint", "")
+                == "enabled"
+                and instance["MetadataOptions"].get("HttpTokens", "")
+                == "optional"
+            ):
+                findings.add(
+                    Finding(
+                        region,
+                        "EC2_IMDSV2_NOT_ENFORCED",
+                        instance["InstanceId"],
+                        resource_details={
+                            "Name": get_name(instance, "InstanceId"),
+                            "Instance ID": instance["InstanceId"],
+                            "Tags": instance.get("Tags", {}),
+                            "MetadataOptions": instance["MetadataOptions"],
+                            "SSH Key Found": instance.get("KeyName", {}),
+                        },
                     )
+                )
 
             # Check for old instances
             if instance.get("LaunchTime", "") != "":
@@ -930,7 +930,7 @@ def audit_sg(findings, region):
             if cidr == "0.0.0.0/0":
                 continue
 
-            cidrs[cidr] = cidrs.get(cidr, list())
+            cidrs[cidr] = cidrs.get(cidr, [])
             cidrs[cidr].append(sg["GroupId"])
 
         for ip_permissions in sg.get("IpPermissions", []):
@@ -1168,10 +1168,10 @@ def audit(accounts):
     custom_auditor = None
     commands_path = "private_commands"
     for importer, command_name, _ in pkgutil.iter_modules([commands_path]):
-        if "custom_auditor" != command_name:
+        if command_name != "custom_auditor":
             continue
 
-        full_package_name = "%s.%s" % (commands_path, command_name)
+        full_package_name = f"{commands_path}.{command_name}"
         custom_auditor = importlib.import_module(full_package_name)
 
         for name, method in inspect.getmembers(custom_auditor, inspect.isfunction):

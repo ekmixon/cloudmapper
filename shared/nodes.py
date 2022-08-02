@@ -30,7 +30,7 @@ from shared.query import query_aws, get_parameter_file
 
 
 def truncate(string):
-    return (string[:39] + "..") if len(string) > 40 else string
+    return f"{string[:39]}.." if len(string) > 40 else string
 
 
 def get_name(node, default):
@@ -46,13 +46,11 @@ def get_name(node, default):
 
 def is_public_ip(ip):
     ip = IPAddress(ip)
-    if (
-        ip in IPNetwork("10.0.0.0/8")
-        or ip in IPNetwork("172.16.0.0/12")
-        or ip in IPNetwork("192.168.0.0/16")
-    ):
-        return False
-    return True
+    return (
+        ip not in IPNetwork("10.0.0.0/8")
+        and ip not in IPNetwork("172.16.0.0/12")
+        and ip not in IPNetwork("192.168.0.0/16")
+    )
 
 
 @add_metaclass(ABCMeta)
@@ -110,50 +108,31 @@ class Node(object):
 
     @property
     def tags(self):
-        raise NotImplementedError(
-            "tags not implemented for type {}".format(self.node_type)
-        )
+        raise NotImplementedError(f"tags not implemented for type {self.node_type}")
 
     @property
     def subnets(self):
-        raise NotImplementedError(
-            "subnets not implemented for type {}".format(self.node_type)
-        )
+        raise NotImplementedError(f"subnets not implemented for type {self.node_type}")
 
     @property
     def account(self):
-        if self._type == "account":
-            return self
-        else:
-            return self.parent.account
+        return self if self._type == "account" else self.parent.account
 
     @property
     def region(self):
-        if self._type == "region":
-            return self
-        else:
-            return self.parent.region
+        return self if self._type == "region" else self.parent.region
 
     @property
     def vpc(self):
-        if self._type == "vpc":
-            return self
-        else:
-            return self.parent.vpc
+        return self if self._type == "vpc" else self.parent.vpc
 
     @property
     def az(self):
-        if self._type == "az":
-            return self
-        else:
-            return self.parent.az
+        return self if self._type == "az" else self.parent.az
 
     @property
     def subnet(self):
-        if self._type == "subnet":
-            return self
-        else:
-            return self.parent.subnet
+        return self if self._type == "subnet" else self.parent.subnet
 
     @property
     def parent(self):
@@ -179,20 +158,16 @@ class Node(object):
         if self.isLeaf:
             return True
         else:
-            for child in self.children:
-                if child.has_leaves:
-                    return True
-            return False
+            return any(child.has_leaves for child in self.children)
 
     @property
     def leaves(self):
         if self.isLeaf:
             return [self]
-        else:
-            leaves = []
-            for child in self.children:
-                leaves.extend(child.leaves)
-            return leaves
+        leaves = []
+        for child in self.children:
+            leaves.extend(child.leaves)
+        return leaves
 
     def cytoscape_data(self, parent_arn=""):
         response = {
@@ -216,7 +191,7 @@ class Node(object):
 class Account(Node):
     def __init__(self, parent, json_blob):
         self._local_id = json_blob["id"]
-        self._arn = "arn:aws:::{}:".format(self._local_id)
+        self._arn = f"arn:aws:::{self._local_id}:"
         self._name = json_blob["name"]
         self._type = "account"
         super(Account, self).__init__(parent, json_blob)
@@ -225,7 +200,7 @@ class Account(Node):
 class Region(Node):
     def __init__(self, parent, json_blob):
         self._local_id = json_blob["RegionName"]
-        self._arn = "arn:aws::{}:{}:".format(self.local_id, parent.account.local_id)
+        self._arn = f"arn:aws::{self.local_id}:{parent.account.local_id}:"
         self._name = json_blob["RegionName"]
         self._type = "region"
         super(Region, self).__init__(parent, json_blob)
@@ -248,9 +223,8 @@ class Vpc(Node):
     def __init__(self, parent, json_blob):
         # arn:aws:ec2:region:account-id:vpc/vpc-id
         self._local_id = json_blob["VpcId"]
-        self._arn = "arn:aws::{}:{}:vpc/{}".format(
-            parent.region.name, parent.account.local_id, self._local_id
-        )
+        self._arn = f"arn:aws::{parent.region.name}:{parent.account.local_id}:vpc/{self._local_id}"
+
         self._name = get_name(json_blob, "VpcId") + " (" + json_blob["CidrBlock"] + ")"
         self._type = "vpc"
 
@@ -262,12 +236,8 @@ class Vpc(Node):
 class Az(Node):
     def __init__(self, parent, json_blob):
         self._local_id = json_blob["ZoneName"]
-        self._arn = "arn:aws::{}:{}:vpc/{}/az/{}".format(
-            parent.region.local_id,
-            parent.account.local_id,
-            parent.local_id,
-            self._local_id,
-        )
+        self._arn = f"arn:aws::{parent.region.local_id}:{parent.account.local_id}:vpc/{parent.local_id}/az/{self._local_id}"
+
         self._name = json_blob["ZoneName"]
         self._type = "az"
         super(Az, self).__init__(parent, json_blob)
@@ -277,9 +247,8 @@ class Subnet(Node):
     def __init__(self, parent, json_blob):
         # arn:aws:ec2:region:account-id:subnet/subnet-id
         self._local_id = json_blob["SubnetId"]
-        self._arn = "arn:aws::{}:{}:subnet/{}".format(
-            parent.region.name, parent.account.local_id, self._local_id
-        )
+        self._arn = f"arn:aws::{parent.region.name}:{parent.account.local_id}:subnet/{self._local_id}"
+
         self._name = (
             get_name(json_blob, "SubnetId") + " (" + json_blob["CidrBlock"] + ")"
         )
@@ -299,10 +268,7 @@ class Ec2(Leaf):
 
     @property
     def is_public(self):
-        for ip in self.ips:
-            if is_public_ip(ip):
-                return True
-        return False
+        return any(is_public_ip(ip) for ip in self.ips)
 
     @property
     def ips(self):
@@ -346,23 +312,23 @@ class Ec2(Leaf):
         collapse_by_tag_value = []
         if collapse_by_tag:
             collapse_by_tag_value = pyjq.all(
-                '.Tags[]? | select(.Key == "{}") | .Value'.format(collapse_by_tag),
+                f'.Tags[]? | select(.Key == "{collapse_by_tag}") | .Value',
                 json_blob,
             )
+
 
         if autoscaling_name != []:
             self._type = "autoscaling"
             self._local_id = autoscaling_name[0]
         elif collapse_by_tag_value != []:
             self._type = "grouped_ec2"
-            self._local_id = "grouped_ec2_{}".format(collapse_by_tag_value[0])
+            self._local_id = f"grouped_ec2_{collapse_by_tag_value[0]}"
         else:
             self._type = "ec2"
             self._local_id = json_blob["InstanceId"]
 
-        self._arn = "arn:aws:ec2:{}:{}:instance/{}".format(
-            parent.region.name, parent.account.local_id, self._local_id
-        )
+        self._arn = f"arn:aws:ec2:{parent.region.name}:{parent.account.local_id}:instance/{self._local_id}"
+
         self._name = get_name(json_blob, "InstanceId")
         super(Ec2, self).__init__(parent, json_blob)
 
@@ -389,21 +355,16 @@ class Elb(Leaf):
 
     def set_subnet(self, subnet):
         self._subnet = subnet
-        self._arn = self._arn + "." + subnet.local_id
+        self._arn = f"{self._arn}.{subnet.local_id}"
 
     @property
     def subnets(self):
-        if self._subnet:
-            return self._subnet
-        else:
-            return pyjq.all(".Subnets[]", self._json_blob)
+        return self._subnet or pyjq.all(".Subnets[]", self._json_blob)
 
     @property
     def is_public(self):
         scheme = pyjq.all(".Scheme", self._json_blob)[0]
-        if scheme == "internet-facing":
-            return True
-        return False
+        return scheme == "internet-facing"
 
     @property
     def security_groups(self):
@@ -412,9 +373,8 @@ class Elb(Leaf):
     def __init__(self, parent, json_blob):
         self._type = "elb"
         self._local_id = json_blob["LoadBalancerName"]
-        self._arn = "arn:aws:elasticloadbalancing:{}:{}:instance/{}/{}".format(
-            parent.region.name, parent.account.local_id, self._local_id, parent.local_id
-        )
+        self._arn = f"arn:aws:elasticloadbalancing:{parent.region.name}:{parent.account.local_id}:instance/{self._local_id}/{parent.local_id}"
+
 
         self._name = json_blob["LoadBalancerName"]
         super(Elb, self).__init__(parent, json_blob)
@@ -442,21 +402,18 @@ class Elbv2(Leaf):
 
     def set_subnet(self, subnet):
         self._subnet = subnet
-        self._arn = self._arn + "." + subnet.local_id
+        self._arn = f"{self._arn}.{subnet.local_id}"
 
     @property
     def subnets(self):
-        if self._subnet:
-            return self._subnet
-        else:
-            return pyjq.all(".AvailabilityZones[].SubnetId", self._json_blob)
+        return self._subnet or pyjq.all(
+            ".AvailabilityZones[].SubnetId", self._json_blob
+        )
 
     @property
     def is_public(self):
         scheme = pyjq.all(".Scheme", self._json_blob)[0]
-        if scheme == "internet-facing":
-            return True
-        return False
+        return scheme == "internet-facing"
 
     @property
     def security_groups(self):
@@ -465,9 +422,8 @@ class Elbv2(Leaf):
     def __init__(self, parent, json_blob):
         self._type = "elbv2"
         self._local_id = json_blob["LoadBalancerName"]
-        self._arn = "arn:aws:elasticloadbalancingv2:{}:{}:instance/{}/{}".format(
-            parent.region.name, parent.account.local_id, self._local_id, parent.local_id
-        )
+        self._arn = f"arn:aws:elasticloadbalancingv2:{parent.region.name}:{parent.account.local_id}:instance/{self._local_id}/{parent.local_id}"
+
 
         self._name = json_blob["LoadBalancerName"]
         super(Elbv2, self).__init__(parent, json_blob)
@@ -487,16 +443,13 @@ class Rds(Leaf):
 
     def set_subnet(self, subnet):
         self._subnet = subnet
-        self._arn = self._arn + "." + subnet.local_id
+        self._arn = f"{self._arn}.{subnet.local_id}"
 
     @property
     def subnets(self):
-        if self._subnet:
-            return self._subnet
-        else:
-            return pyjq.all(
-                ".DBSubnetGroup.Subnets[].SubnetIdentifier", self._json_blob
-            )
+        return self._subnet or pyjq.all(
+            ".DBSubnetGroup.Subnets[].SubnetIdentifier", self._json_blob
+        )
 
     @property
     def tags(self):
@@ -506,9 +459,7 @@ class Rds(Leaf):
             "list-tags-for-resource",
             self._json_blob["DBInstanceArn"],
         )
-        if tags is None:
-            return []
-        return tags["TagList"]
+        return [] if tags is None else tags["TagList"]
 
     @property
     def is_public(self):
@@ -554,16 +505,11 @@ class VpcEndpoint(Leaf):
 
     def set_subnet(self, subnet):
         self._subnet = subnet
-        self._arn = self._arn + "." + subnet.local_id
+        self._arn = f"{self._arn}.{subnet.local_id}"
 
     @property
     def subnets(self):
-        if self._subnet:
-            return self._subnet
-        else:
-            # TODO Has SubnetIds not Subnet names
-            # And in the case of Gateway endpoints, it has only a VPC
-            return pyjq.all(".SubnetIds[]", self._json_blob)
+        return self._subnet or pyjq.all(".SubnetIds[]", self._json_blob)
 
     @property
     def is_public(self):
@@ -576,9 +522,8 @@ class VpcEndpoint(Leaf):
     def __init__(self, parent, json_blob):
         self._type = "vpc_endpoint"
         self._local_id = json_blob["VpcEndpointId"]
-        self._arn = "arn:aws:endpoint:{}:{}:instance/{}".format(
-            parent.region.name, parent.account.local_id, self._local_id
-        )
+        self._arn = f"arn:aws:endpoint:{parent.region.name}:{parent.account.local_id}:instance/{self._local_id}"
+
 
         # Need to set the parent, but what was passed in was the region
         assert parent._type == "region"
@@ -641,10 +586,14 @@ class Ecs(Leaf):
 
     @property
     def subnets(self):
-        for detail in pyjq.all(".attachments[].details[]", self._json_blob):
-            if detail["name"] == "subnetId":
-                return [detail["value"]]
-        return []
+        return next(
+            (
+                [detail["value"]]
+                for detail in pyjq.all(".attachments[].details[]", self._json_blob)
+                if detail["name"] == "subnetId"
+            ),
+            [],
+        )
 
     @property
     def tags(self):
@@ -652,10 +601,7 @@ class Ecs(Leaf):
 
     @property
     def is_public(self):
-        for ip in self.ips:
-            if is_public_ip(ip):
-                return True
-        return False
+        return any(is_public_ip(ip) for ip in self.ips)
 
     @property
     def security_groups(self):
@@ -668,8 +614,7 @@ class Ecs(Leaf):
                 )
                 for interface in interfaces_json["NetworkInterfaces"]:
                     if interface["NetworkInterfaceId"] == eni:
-                        for group in interface["Groups"]:
-                            sgs.append(group["GroupId"])
+                        sgs.extend(group["GroupId"] for group in interface["Groups"])
         return sgs
 
     def __init__(self, parent, json_blob):
@@ -689,7 +634,7 @@ class Lambda(Leaf):
 
     def set_subnet(self, subnet):
         self._subnet = subnet
-        self._arn = self._arn + "." + subnet.local_id
+        self._arn = f"{self._arn}.{subnet.local_id}"
 
     @property
     def ips(self):
@@ -697,10 +642,7 @@ class Lambda(Leaf):
 
     @property
     def subnets(self):
-        if self._subnet:
-            return self._subnet
-        else:
-            return pyjq.all(".VpcConfig.SubnetIds[]", self._json_blob)
+        return self._subnet or pyjq.all(".VpcConfig.SubnetIds[]", self._json_blob)
 
     @property
     def tags(self):
@@ -728,7 +670,7 @@ class Redshift(Leaf):
 
     def set_subnet(self, subnet):
         self._subnet = subnet
-        self._arn = self._arn + "." + subnet.local_id
+        self._arn = f"{self._arn}.{subnet.local_id}"
 
     @property
     def ips(self):
@@ -748,43 +690,44 @@ class Redshift(Leaf):
     def subnets(self):
         if self._subnet:
             return self._subnet
-        else:
-            # Get the subnets that this cluster can be a part of
-            cluster_subnet_group_name = self._json_blob["ClusterSubnetGroupName"]
-            vpc_id = self._json_blob["VpcId"]
-            subnet_groups_json = query_aws(
-                self.account, "redshift-describe-cluster-subnet-groups", self.region
-            )
-            matched_subnet_group = {}
-            for subnet_group in subnet_groups_json["ClusterSubnetGroups"]:
-                if (
-                    vpc_id == subnet_group["VpcId"]
-                    and cluster_subnet_group_name
-                    == subnet_group["ClusterSubnetGroupName"]
-                ):
-                    matched_subnet_group = subnet_group
-            if matched_subnet_group == {}:
-                raise Exception("Could not find the subnet group")
+        # Get the subnets that this cluster can be a part of
+        cluster_subnet_group_name = self._json_blob["ClusterSubnetGroupName"]
+        vpc_id = self._json_blob["VpcId"]
+        subnet_groups_json = query_aws(
+            self.account, "redshift-describe-cluster-subnet-groups", self.region
+        )
+        matched_subnet_group = {}
+        for subnet_group in subnet_groups_json["ClusterSubnetGroups"]:
+            if (
+                vpc_id == subnet_group["VpcId"]
+                and cluster_subnet_group_name
+                == subnet_group["ClusterSubnetGroupName"]
+            ):
+                matched_subnet_group = subnet_group
+        if matched_subnet_group == {}:
+            raise Exception("Could not find the subnet group")
 
             # Get the IDs of those subnets
-            subnet_ids = []
-            for subnet in matched_subnet_group["Subnets"]:
-                subnet_ids.append(subnet["SubnetIdentifier"])
+        subnet_ids = [
+            subnet["SubnetIdentifier"]
+            for subnet in matched_subnet_group["Subnets"]
+        ]
 
-            # Look through the subnets in the regions for ones that match,
-            # then find those subnets that actually have the IPs for the cluster nodes in them
-            subnets_with_cluster_nodes = []
-            subnets = query_aws(self.account, "ec2-describe-subnets", self.region)
-            for subnet in subnets["Subnets"]:
-                if subnet["SubnetId"] in subnet_ids:
+        # Look through the subnets in the regions for ones that match,
+        # then find those subnets that actually have the IPs for the cluster nodes in them
+        subnets_with_cluster_nodes = []
+        subnets = query_aws(self.account, "ec2-describe-subnets", self.region)
+        for subnet in subnets["Subnets"]:
+            if subnet["SubnetId"] in subnet_ids:
                     # We have a subnet ID that we know the cluster can be part of, now check if there is actually a node there
-                    for cluster_node in self._json_blob["ClusterNodes"]:
-                        if IPAddress(cluster_node["PrivateIPAddress"]) in IPNetwork(
-                            subnet["CidrBlock"]
-                        ):
-                            subnets_with_cluster_nodes.append(subnet["SubnetId"])
+                subnets_with_cluster_nodes.extend(
+                    subnet["SubnetId"]
+                    for cluster_node in self._json_blob["ClusterNodes"]
+                    if IPAddress(cluster_node["PrivateIPAddress"])
+                    in IPNetwork(subnet["CidrBlock"])
+                )
 
-            return subnets_with_cluster_nodes
+        return subnets_with_cluster_nodes
 
     @property
     def tags(self):
@@ -792,10 +735,7 @@ class Redshift(Leaf):
 
     @property
     def is_public(self):
-        for ip in self.ips:
-            if is_public_ip(ip):
-                return True
-        return False
+        return any(is_public_ip(ip) for ip in self.ips)
 
     @property
     def security_groups(self):
@@ -813,10 +753,9 @@ class Redshift(Leaf):
                 self._parent = vpc
         if self._parent is None:
             raise Exception(
-                "Could not find parent for Redshift node, was looking for VPC {}".format(
-                    json_blob["VpcId"]
-                )
+                f'Could not find parent for Redshift node, was looking for VPC {json_blob["VpcId"]}'
             )
+
 
         self._local_id = json_blob["ClusterIdentifier"]
         self._arn = json_blob["Endpoint"]["Address"]
@@ -869,11 +808,7 @@ class Cidr(Leaf):
         self._type = "ip"
         self._arn = cidr
         self._local_id = cidr
-        if name:
-            self._name = name
-        else:
-            self._name = cidr
-
+        self._name = name or cidr
         if cidr == "0.0.0.0/0":
             self._name = "Public"
             self._type = "cloud"

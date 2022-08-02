@@ -40,12 +40,7 @@ def api_endpoints(accounts, config):
                                 continue
                             for resource in resources["items"]:
                                 print(
-                                    "{}.execute-api.{}.amazonaws.com/{}{}".format(
-                                        api["id"],
-                                        region.name,
-                                        stage["stageName"],
-                                        resource["path"],
-                                    )
+                                    f'{api["id"]}.execute-api.{region.name}.amazonaws.com/{stage["stageName"]}{resource["path"]}'
                                 )
 
 
